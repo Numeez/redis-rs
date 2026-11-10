@@ -1,3 +1,4 @@
+mod buffer;
 mod poll;
 
 use std::{
@@ -9,21 +10,39 @@ use std::{
 
 use poll::PollFd;
 
-use crate::poll::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, poll_fds};
+use crate::{
+    buffer::Buffer,
+    poll::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, poll_fds},
+};
+
+const MAX_SIZE: usize = 32 << 20;
 
 struct Client {
     stream: TcpStream,
-    output_buffer: Vec<u8>,
-    input_buffer: Vec<u8>,
+    output_buffer: Buffer,
+    input_buffer: Buffer,
 }
 
 impl Client {
     fn new(stream: TcpStream) -> Self {
         Self {
             stream,
-            output_buffer: vec![],
-            input_buffer: vec![],
+            output_buffer: Buffer::new(),
+            input_buffer: Buffer::new(),
         }
+    }
+    fn try_write(&mut self) -> bool {
+        match self.stream.write(self.output_buffer.data()) {
+            Ok(n) => {
+                self.output_buffer.consume(n);
+            }
+            Err(e) => {
+                if e.kind() != ErrorKind::WouldBlock && e.kind() != ErrorKind::Interrupted {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -41,9 +60,11 @@ fn main() -> std::io::Result<()> {
         }];
 
         for (key, client) in connection_map.iter() {
-            let mut events = POLLIN;
+            let events: i16;
             if !client.output_buffer.is_empty() {
-                events |= POLLOUT;
+                events = POLLOUT;
+            } else {
+                events = POLLIN;
             }
             fds.push(PollFd {
                 fd: *key,
@@ -60,77 +81,94 @@ fn main() -> std::io::Result<()> {
         }
 
         if fds[0].revents & POLLIN != 0 {
-            loop {
-                match listener.accept() {
-                    Ok((stream, address)) => {
-                        eprintln!("Client with addr: {address} connected");
-                        if let Err(err) = stream.set_nonblocking(true) {
-                            eprintln!("Error occured while setting non blocking stream: {err}");
-                            continue;
-                        };
-                        let client_fd = stream.as_raw_fd();
-                        connection_map.insert(client_fd, Client::new(stream));
-                    }
-                    Err(e) => {
-                        if e.kind() != ErrorKind::WouldBlock {
-                            eprintln!("Error occured: {e}");
-                        }
-                        break;
-                    }
-                }
-            }
+            accept_connection(&listener, &mut connection_map)
         }
 
         for entry in &fds[1..] {
-            if entry.revents & POLLIN != 0 {
-                if let Some(client) = connection_map.get_mut(&entry.fd) {
-                    let mut buffer = [0u8; 1024];
-                    match client.stream.read(&mut buffer) {
-                        Ok(val) => {
-                            if val == 0 {
-                                connection_map.remove(&entry.fd);
+            handle_events(entry, &mut connection_map)
+        }
+    }
+}
+
+fn accept_connection(listener: &TcpListener, connection_map: &mut HashMap<RawFd, Client>) {
+    loop {
+        match listener.accept() {
+            Ok((stream, address)) => {
+                eprintln!("Client with addr: {address} connected");
+                if let Err(err) = stream.set_nonblocking(true) {
+                    eprintln!("Error occured while setting non blocking stream: {err}");
+                    continue;
+                };
+                let client_fd = stream.as_raw_fd();
+                connection_map.insert(client_fd, Client::new(stream));
+            }
+            Err(e) => {
+                if e.kind() != ErrorKind::WouldBlock {
+                    eprintln!("Error occured: {e}");
+                }
+                break;
+            }
+        }
+    }
+}
+
+fn handle_events(entry: &PollFd, connection_map: &mut HashMap<RawFd, Client>) {
+    if entry.revents & POLLIN != 0 {
+        if let Some(client) = connection_map.get_mut(&entry.fd) {
+            let mut buffer = [0u8; 1024];
+            let mut close = false;
+            match client.stream.read(&mut buffer) {
+                Ok(val) => {
+                    if val == 0 {
+                        connection_map.remove(&entry.fd);
+                    } else {
+                        client.input_buffer.append(&buffer[..val]);
+                        loop {
+                            if client.input_buffer.len() < 4 {
+                                break;
+                            }
+                            let length =
+                                u32::from_le_bytes(client.input_buffer.data()[..4].try_into().unwrap())
+                                    as usize;
+                            if length > MAX_SIZE {
+                                close = true;
+                                break;
+                            }
+                            if client.input_buffer.len() >= 4 + length {
+                                client
+                                    .output_buffer
+                                    .append(&client.input_buffer.data()[..4 + length]);
+                                client.input_buffer.consume(4 + length);
                             } else {
-                                client.input_buffer.extend_from_slice(&buffer[..val]);
-                                while let Some(i) =
-                                    client.input_buffer.iter().position(|&b| b == b'\n')
-                                {
-                                    let read_input: Vec<u8> =
-                                        client.input_buffer.drain(..=i).collect();
-                                    client.output_buffer.extend_from_slice(&read_input);
-                                }
+                                break;
                             }
                         }
-                        Err(err) => {
-                            if err.kind() != ErrorKind::WouldBlock
-                                && err.kind() != ErrorKind::Interrupted
-                            {
-                                connection_map.remove(&entry.fd);
-                            }
+                        if !close && !client.output_buffer.is_empty() {
+                            close = client.try_write();
                         }
                     }
                 }
-            }
-
-            if entry.revents & POLLOUT != 0 {
-                if let Some(client) = connection_map.get_mut(&entry.fd) {
-                    match client.stream.write(&client.output_buffer) {
-                        Ok(n) => {
-                            client.output_buffer.drain(..n);
-                        }
-                        Err(e) => {
-                            if e.kind() != ErrorKind::WouldBlock
-                                && e.kind() != ErrorKind::Interrupted
-                            {
-                                connection_map.remove(&entry.fd);
-                            }
-                        }
+                Err(err) => {
+                    if err.kind() != ErrorKind::WouldBlock && err.kind() != ErrorKind::Interrupted {
+                        connection_map.remove(&entry.fd);
                     }
                 }
             }
-
-            if entry.revents & (POLLERR | POLLHUP | POLLNVAL) != 0 {
+            if close {
                 connection_map.remove(&entry.fd);
             }
         }
+    }
+
+    if entry.revents & POLLOUT != 0 {
+        if let Some(client) = connection_map.get_mut(&entry.fd) {
+            if client.try_write() {
+                connection_map.remove(&entry.fd);
+            }
+        }
+    }
+
+    if entry.revents & (POLLERR | POLLHUP | POLLNVAL) != 0 {
+        connection_map.remove(&entry.fd);
     }
 }
