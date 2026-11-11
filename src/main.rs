@@ -1,4 +1,5 @@
 mod buffer;
+mod operation;
 mod poll;
 
 use std::{
@@ -16,6 +17,9 @@ use crate::{
 };
 
 const MAX_SIZE: usize = 32 << 20;
+const RES_OK: u32 = 0;
+const RES_ERR: u32 = 1;
+const RES_NX: u32 = 2;
 
 struct Client {
     stream: TcpStream,
@@ -48,6 +52,7 @@ impl Client {
 
 fn main() -> std::io::Result<()> {
     let mut connection_map: HashMap<RawFd, Client> = HashMap::new();
+    let mut store: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     let listener = TcpListener::bind("127.0.0.1:6969")?;
     eprintln!("Server is listening on the  port: 6969");
     listener.set_nonblocking(true)?;
@@ -85,7 +90,7 @@ fn main() -> std::io::Result<()> {
         }
 
         for entry in &fds[1..] {
-            handle_events(entry, &mut connection_map)
+            handle_events(entry, &mut connection_map, &mut store)
         }
     }
 }
@@ -112,7 +117,11 @@ fn accept_connection(listener: &TcpListener, connection_map: &mut HashMap<RawFd,
     }
 }
 
-fn handle_events(entry: &PollFd, connection_map: &mut HashMap<RawFd, Client>) {
+fn handle_events(
+    entry: &PollFd,
+    connection_map: &mut HashMap<RawFd, Client>,
+    store: &mut HashMap<Vec<u8>, Vec<u8>>,
+) {
     if entry.revents & POLLIN != 0 {
         if let Some(client) = connection_map.get_mut(&entry.fd) {
             let mut buffer = [0u8; 1024];
@@ -127,18 +136,15 @@ fn handle_events(entry: &PollFd, connection_map: &mut HashMap<RawFd, Client>) {
                             if client.input_buffer.len() < 4 {
                                 break;
                             }
-                            let length =
-                                u32::from_le_bytes(client.input_buffer.data()[..4].try_into().unwrap())
-                                    as usize;
+                            let length = u32::from_le_bytes(
+                                client.input_buffer.data()[..4].try_into().unwrap(),
+                            ) as usize;
                             if length > MAX_SIZE {
                                 close = true;
                                 break;
                             }
                             if client.input_buffer.len() >= 4 + length {
-                                client
-                                    .output_buffer
-                                    .append(&client.input_buffer.data()[..4 + length]);
-                                client.input_buffer.consume(4 + length);
+                                handle_request(client, length, store);
                             } else {
                                 break;
                             }
@@ -171,4 +177,63 @@ fn handle_events(entry: &PollFd, connection_map: &mut HashMap<RawFd, Client>) {
     if entry.revents & (POLLERR | POLLHUP | POLLNVAL) != 0 {
         connection_map.remove(&entry.fd);
     }
+}
+
+fn parse_client_request(mut request_buffer: &[u8]) -> std::io::Result<Vec<Vec<u8>>> {
+    let mut result: Vec<Vec<u8>> = vec![];
+    let mut buffer = [0u8; 4];
+    request_buffer.read_exact(&mut buffer)?;
+    let nstr = u32::from_le_bytes(buffer) as usize;
+    if nstr > 200_000 {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            "nstr value is too big should be less than 200_000",
+        ));
+    }
+    for _ in 0..nstr {
+        request_buffer.read_exact(&mut buffer)?;
+        let length = u32::from_le_bytes(buffer) as usize;
+        if length > request_buffer.len() {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "string length exceeds payload",
+            ));
+        }
+        let mut buf = vec![0u8; length];
+        request_buffer.read_exact(&mut buf)?;
+        result.push(buf);
+    }
+    if !request_buffer.is_empty() {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            "buffer is not empty nstr is wrong",
+        ));
+    }
+
+    Ok(result)
+}
+
+fn handle_request(client: &mut Client, length: usize, store: &mut HashMap<Vec<u8>, Vec<u8>>) {
+    match parse_client_request(&client.input_buffer.data()[4..4 + length]) {
+        Ok(val) => match operation::parse_command(val) {
+            Ok(cmd) => {
+                operation::execute(&mut client.output_buffer, cmd, store);
+            }
+            Err(e) => {
+                operation::write_response(
+                    &mut client.output_buffer,
+                    RES_ERR,
+                    e.to_string().as_bytes(),
+                );
+                client.input_buffer.consume(4 + length);
+                return;
+            }
+        },
+        Err(e) => {
+            operation::write_response(&mut client.output_buffer, RES_ERR, e.to_string().as_bytes());
+            client.input_buffer.consume(4 + length);
+            return;
+        }
+    }
+    client.input_buffer.consume(4 + length);
 }
