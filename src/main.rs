@@ -1,9 +1,7 @@
 mod buffer;
+mod hash;
 mod operation;
 mod poll;
-mod hash;
-
-
 
 use std::{
     collections::HashMap,
@@ -16,6 +14,7 @@ use poll::PollFd;
 
 use crate::{
     buffer::Buffer,
+    hash::HMap,
     poll::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, poll_fds},
 };
 
@@ -55,7 +54,7 @@ impl Client {
 
 fn main() -> std::io::Result<()> {
     let mut connection_map: HashMap<RawFd, Client> = HashMap::new();
-    let mut store: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+    let mut store = hash::HMap::new(4);
     let listener = TcpListener::bind("127.0.0.1:6969")?;
     eprintln!("Server is listening on the  port: 6969");
     listener.set_nonblocking(true)?;
@@ -120,11 +119,7 @@ fn accept_connection(listener: &TcpListener, connection_map: &mut HashMap<RawFd,
     }
 }
 
-fn handle_events(
-    entry: &PollFd,
-    connection_map: &mut HashMap<RawFd, Client>,
-    store: &mut HashMap<Vec<u8>, Vec<u8>>,
-) {
+fn handle_events(entry: &PollFd, connection_map: &mut HashMap<RawFd, Client>, store: &mut HMap) {
     if entry.revents & POLLIN != 0 {
         if let Some(client) = connection_map.get_mut(&entry.fd) {
             let mut buffer = [0u8; 1024];
@@ -216,7 +211,7 @@ fn parse_client_request(mut request_buffer: &[u8]) -> std::io::Result<Vec<Vec<u8
     Ok(result)
 }
 
-fn handle_request(client: &mut Client, length: usize, store: &mut HashMap<Vec<u8>, Vec<u8>>) {
+fn handle_request(client: &mut Client, length: usize, store: &mut HMap) {
     match parse_client_request(&client.input_buffer.data()[4..4 + length]) {
         Ok(val) => match operation::parse_command(val) {
             Ok(cmd) => {

@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use crate::{RES_NX, RES_OK, buffer::Buffer};
+use crate::{RES_NX, RES_OK, buffer::Buffer, hash};
 
 #[derive(Debug)]
 pub enum Command {
@@ -45,7 +43,7 @@ pub fn parse_command(mut data: Vec<Vec<u8>>) -> std::io::Result<Command> {
     }
 }
 
-pub fn execute(output_buffer: &mut Buffer, cmd: Command, store: &mut HashMap<Vec<u8>, Vec<u8>>) {
+pub fn execute(output_buffer: &mut Buffer, cmd: Command, store: &mut hash::HMap) {
     match cmd {
         Command::Set { key, val } => {
             execute_set(store, key, val);
@@ -64,18 +62,14 @@ pub fn execute(output_buffer: &mut Buffer, cmd: Command, store: &mut HashMap<Vec
     }
 }
 
-fn execute_set(
-    store: &mut HashMap<Vec<u8>, Vec<u8>>,
-    key: Vec<u8>,
-    val: Vec<u8>,
-) -> Option<Vec<u8>> {
+fn execute_set(store: &mut hash::HMap, key: Vec<u8>, val: Vec<u8>) {
     store.insert(key, val)
 }
 
-pub fn execute_get(store: &mut HashMap<Vec<u8>, Vec<u8>>, key: Vec<u8>) -> Option<&Vec<u8>> {
-    store.get(&key)
+pub fn execute_get(store: &mut hash::HMap, key: Vec<u8>) -> Option<&Vec<u8>> {
+    store.look_up(&key)
 }
 
-pub fn execute_del(store: &mut HashMap<Vec<u8>, Vec<u8>>, key: Vec<u8>) -> Option<Vec<u8>> {
+pub fn execute_del(store: &mut hash::HMap, key: Vec<u8>) -> bool {
     store.remove(&key)
 }

@@ -1,7 +1,7 @@
 const P: u64 = 0x100000001b3u64;
 const MAX_LOAD_FACTOR: usize = 8;
 
-struct HMap {
+pub struct HMap {
     newer: Table,
     older: Table,
     migration_pos: usize,
