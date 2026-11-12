@@ -1,6 +1,9 @@
 mod buffer;
 mod operation;
 mod poll;
+mod hash;
+
+
 
 use std::{
     collections::HashMap,
