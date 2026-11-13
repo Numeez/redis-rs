@@ -1,17 +1,15 @@
-use crate::{RES_NX, RES_OK, buffer::Buffer, hash};
+use crate::{
+    buffer::Buffer,
+    hash,
+    protocol::{self, out_arr, out_nil, out_str},
+};
 
 #[derive(Debug)]
 pub enum Command {
     Get { key: Vec<u8> },
     Set { key: Vec<u8>, val: Vec<u8> },
     Del { key: Vec<u8> },
-}
-
-pub fn write_response(output_buffer: &mut Buffer, status: u32, data: &[u8]) {
-    let length = 4 + data.len() as u32;
-    output_buffer.append(&length.to_le_bytes());
-    output_buffer.append(&status.to_le_bytes());
-    output_buffer.append(data);
+    Keys,
 }
 
 pub fn parse_command(mut data: Vec<Vec<u8>>) -> std::io::Result<Command> {
@@ -34,6 +32,7 @@ pub fn parse_command(mut data: Vec<Vec<u8>>) -> std::io::Result<Command> {
         (b"del", 2) => Ok(Command::Del {
             key: data.pop().unwrap(),
         }),
+        (b"keys", 1) => Ok(Command::Keys),
         _ => {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -47,17 +46,29 @@ pub fn execute(output_buffer: &mut Buffer, cmd: Command, store: &mut hash::HMap)
     match cmd {
         Command::Set { key, val } => {
             execute_set(store, key, val);
-            write_response(output_buffer, RES_OK, b"");
+            protocol::out_nil(output_buffer);
         }
         Command::Get { key } => match execute_get(store, key) {
-            Some(val) => write_response(output_buffer, RES_OK, val),
+            Some(val) => out_str(output_buffer, val),
             None => {
-                write_response(output_buffer, RES_NX, b"");
+                out_nil(output_buffer);
             }
         },
         Command::Del { key } => {
-            execute_del(store, key);
-            write_response(output_buffer, RES_OK, b"");
+            let val: i64;
+            if execute_del(store, key) {
+                val = 1;
+            } else {
+                val = 0;
+            }
+            protocol::out_int(output_buffer, val);
+        }
+        Command::Keys => {
+            let keys = store.keys();
+            out_arr(output_buffer, keys.len() as u32);
+            for key in keys {
+                out_str(output_buffer, key);
+            }
         }
     }
 }

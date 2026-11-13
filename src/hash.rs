@@ -1,3 +1,5 @@
+use std::vec;
+
 const P: u64 = 0x100000001b3u64;
 const MAX_LOAD_FACTOR: usize = 8;
 
@@ -15,7 +17,8 @@ impl HMap {
             migration_pos: 0,
         }
     }
-    pub fn look_up(&self, key: &[u8]) -> Option<&Vec<u8>> {
+    pub fn look_up(&mut self, key: &[u8]) -> Option<&Vec<u8>> {
+        self.rehashing();
         let hash = hash(key);
         let mut result = self.newer.lookup(hash, key);
         if result.is_none() {
@@ -76,6 +79,16 @@ impl HMap {
             return true;
         }
         false
+    }
+
+    pub fn len(&self) -> usize {
+        self.newer.len() + self.older.len()
+    }
+    pub fn keys(&self) -> Vec<&[u8]> {
+        let mut keys: Vec<&[u8]> = Vec::with_capacity(self.len());
+        self.newer.collect(&mut keys);
+        self.older.collect(&mut keys);
+        keys
     }
 }
 
@@ -172,6 +185,15 @@ impl Table {
 
     pub fn capacity(&self) -> usize {
         self.slots.iter().len()
+    }
+    pub fn collect<'a>(&'a self, out: &mut Vec<&'a [u8]>) {
+        for slot in &self.slots {
+            let mut cur = slot;
+            while let Some(node) = cur {
+                out.push(&node.key);
+                cur = &node.next;
+            }
+        }
     }
 }
 

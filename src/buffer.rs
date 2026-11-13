@@ -1,3 +1,7 @@
+use crate::protocol;
+
+pub const MAX_SIZE: usize = 32 << 20;
+
 pub struct Buffer {
     data: Vec<u8>,
     start: usize,
@@ -31,9 +35,33 @@ impl Buffer {
         &self.data[self.start..]
     }
     pub fn is_empty(&self) -> bool {
-         self.len() == 0
+        self.len() == 0
     }
     pub fn len(&self) -> usize {
         return self.data.len() - self.start;
     }
+
+    pub fn set_header(&mut self, pos: usize, header: &[u8]) {
+        let i = self.start + pos;
+        self.data[i..i + 4].copy_from_slice(header);
+    }
+    pub fn truncate(&mut self, end: usize) {
+        self.data.truncate(self.start + end);
+    }
+}
+
+pub fn response_start(out: &mut Buffer) -> usize {
+    let length = out.len();
+    out.append(&[0u8; 4]);
+    length
+}
+
+pub fn response_end(out: &mut Buffer, pos: usize) {
+    let mut header_length = out.len() - pos - 4;
+    if header_length > MAX_SIZE {
+        out.truncate(pos + 4);
+        protocol::out_error(out, protocol::ERR_TOO_BIG, b"response is too big");
+        header_length = out.len() - pos - 4;
+    }
+    out.set_header(pos, &(header_length as u32).to_le_bytes());
 }

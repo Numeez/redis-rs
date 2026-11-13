@@ -2,6 +2,7 @@ mod buffer;
 mod hash;
 mod operation;
 mod poll;
+mod protocol;
 
 use std::{
     collections::HashMap,
@@ -13,15 +14,10 @@ use std::{
 use poll::PollFd;
 
 use crate::{
-    buffer::Buffer,
+    buffer::{Buffer, response_end, response_start},
     hash::HMap,
     poll::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, poll_fds},
 };
-
-const MAX_SIZE: usize = 32 << 20;
-const RES_OK: u32 = 0;
-const RES_ERR: u32 = 1;
-const RES_NX: u32 = 2;
 
 struct Client {
     stream: TcpStream,
@@ -137,7 +133,7 @@ fn handle_events(entry: &PollFd, connection_map: &mut HashMap<RawFd, Client>, st
                             let length = u32::from_le_bytes(
                                 client.input_buffer.data()[..4].try_into().unwrap(),
                             ) as usize;
-                            if length > MAX_SIZE {
+                            if length > buffer::MAX_SIZE {
                                 close = true;
                                 break;
                             }
@@ -212,26 +208,30 @@ fn parse_client_request(mut request_buffer: &[u8]) -> std::io::Result<Vec<Vec<u8
 }
 
 fn handle_request(client: &mut Client, length: usize, store: &mut HMap) {
-    match parse_client_request(&client.input_buffer.data()[4..4 + length]) {
-        Ok(val) => match operation::parse_command(val) {
-            Ok(cmd) => {
-                operation::execute(&mut client.output_buffer, cmd, store);
-            }
-            Err(e) => {
-                operation::write_response(
-                    &mut client.output_buffer,
-                    RES_ERR,
-                    e.to_string().as_bytes(),
-                );
-                client.input_buffer.consume(4 + length);
-                return;
-            }
-        },
+    let header = response_start(&mut client.output_buffer);
+    process_request(
+        &client.input_buffer.data()[4..4 + length],
+        &mut client.output_buffer,
+        store,
+    );
+    response_end(&mut client.output_buffer, header);
+    client.input_buffer.consume(4 + length);
+}
+
+fn process_request(payload: &[u8], out: &mut Buffer, store: &mut HMap) {
+    let args = match parse_client_request(payload) {
+        Ok(args) => args,
         Err(e) => {
-            operation::write_response(&mut client.output_buffer, RES_ERR, e.to_string().as_bytes());
-            client.input_buffer.consume(4 + length);
+            protocol::out_error(out, protocol::ERR_UNKNOWN, e.to_string().as_bytes());
             return;
         }
-    }
-    client.input_buffer.consume(4 + length);
+    };
+    let cmd = match operation::parse_command(args) {
+        Ok(cmd) => cmd,
+        Err(e) => {
+            protocol::out_error(out, protocol::ERR_UNKNOWN, e.to_string().as_bytes());
+            return;
+        }
+    };
+    operation::execute(out, cmd, store);
 }
