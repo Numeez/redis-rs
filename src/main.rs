@@ -1,17 +1,18 @@
 mod avl;
 mod buffer;
 mod hash;
+mod key;
 mod operation;
 mod poll;
 mod protocol;
-mod key;
 mod zset;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io::{ErrorKind, Read, Write},
     net::{TcpListener, TcpStream},
     os::fd::{AsRawFd, RawFd},
+    time::{Duration, Instant},
 };
 
 use poll::PollFd;
@@ -22,10 +23,12 @@ use crate::{
     poll::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, poll_fds},
 };
 
+const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
 struct Client {
     stream: TcpStream,
     output_buffer: Buffer,
     input_buffer: Buffer,
+    last_active: Instant,
 }
 
 impl Client {
@@ -34,6 +37,7 @@ impl Client {
             stream,
             output_buffer: Buffer::new(),
             input_buffer: Buffer::new(),
+            last_active: Instant::now(),
         }
     }
     fn try_write(&mut self) -> bool {
@@ -53,6 +57,7 @@ impl Client {
 
 fn main() -> std::io::Result<()> {
     let mut connection_map: HashMap<RawFd, Client> = HashMap::new();
+    let mut idles: VecDeque<(Instant, RawFd)> = VecDeque::new();
     let mut store = hash::HMap::new(4);
     let listener = TcpListener::bind("127.0.0.1:6969")?;
     eprintln!("Server is listening on the  port: 6969");
@@ -78,7 +83,7 @@ fn main() -> std::io::Result<()> {
                 revents: 0,
             });
         }
-        match poll_fds(&mut fds, -1) {
+        match poll_fds(&mut fds, next_timeout_ms(&idles)) {
             Ok(val) => eprintln!("The return value of poll: {val}"),
             Err(e) => {
                 eprintln!("Err occured while  calling poll: {e}");
@@ -87,16 +92,21 @@ fn main() -> std::io::Result<()> {
         }
 
         if fds[0].revents & POLLIN != 0 {
-            accept_connection(&listener, &mut connection_map)
+            accept_connection(&listener, &mut idles, &mut connection_map)
         }
 
         for entry in &fds[1..] {
-            handle_events(entry, &mut connection_map, &mut store)
+            handle_events(entry, &mut idles, &mut connection_map, &mut store)
         }
+        process_timers(&mut idles, &mut connection_map);
     }
 }
 
-fn accept_connection(listener: &TcpListener, connection_map: &mut HashMap<RawFd, Client>) {
+fn accept_connection(
+    listener: &TcpListener,
+    idles: &mut VecDeque<(Instant, RawFd)>,
+    connection_map: &mut HashMap<RawFd, Client>,
+) {
     loop {
         match listener.accept() {
             Ok((stream, address)) => {
@@ -105,8 +115,10 @@ fn accept_connection(listener: &TcpListener, connection_map: &mut HashMap<RawFd,
                     eprintln!("Error occured while setting non blocking stream: {err}");
                     continue;
                 };
-                let client_fd = stream.as_raw_fd();
-                connection_map.insert(client_fd, Client::new(stream));
+                let client = Client::new(stream);
+                let client_fd = client.stream.as_raw_fd();
+                idles.push_back((client.last_active, client_fd));
+                connection_map.insert(client_fd, client);
             }
             Err(e) => {
                 if e.kind() != ErrorKind::WouldBlock {
@@ -118,11 +130,18 @@ fn accept_connection(listener: &TcpListener, connection_map: &mut HashMap<RawFd,
     }
 }
 
-fn handle_events(entry: &PollFd, connection_map: &mut HashMap<RawFd, Client>, store: &mut HMap) {
+fn handle_events(
+    entry: &PollFd,
+    idles: &mut VecDeque<(Instant, RawFd)>,
+    connection_map: &mut HashMap<RawFd, Client>,
+    store: &mut HMap,
+) {
     if entry.revents & POLLIN != 0 {
         if let Some(client) = connection_map.get_mut(&entry.fd) {
             let mut buffer = [0u8; 1024];
             let mut close = false;
+            client.last_active = Instant::now();
+            idles.push_back((client.last_active, entry.fd));
             match client.stream.read(&mut buffer) {
                 Ok(val) => {
                     if val == 0 {
@@ -237,4 +256,39 @@ fn process_request(payload: &[u8], out: &mut Buffer, store: &mut HMap) {
         }
     };
     operation::execute(out, cmd, store);
+}
+
+fn next_timeout_ms(idles: &VecDeque<(Instant, RawFd)>) -> i32 {
+    match idles.front() {
+        None => -1,
+        Some(&(t, _)) => {
+            let deadline = t + IDLE_TIMEOUT;
+            let now = Instant::now();
+            if deadline <= now {
+                0
+            } else {
+                (deadline - now).as_millis() as i32 + 1
+            }
+        }
+    }
+}
+
+fn process_timers(
+    idles: &mut VecDeque<(Instant, RawFd)>,
+    connection_map: &mut HashMap<RawFd, Client>,
+) {
+    let now = Instant::now();
+    while let Some(&(t, fd)) = idles.front() {
+        if t + IDLE_TIMEOUT > now {
+            break;
+        }
+        idles.pop_front();
+        let still_idle = connection_map
+            .get(&fd)
+            .map_or(false, |c| c.last_active == t);
+        if still_idle {
+            eprintln!("closing idle connection {fd}");
+            connection_map.remove(&fd);
+        }
+    }
 }
