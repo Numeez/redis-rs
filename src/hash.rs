@@ -1,7 +1,15 @@
 use std::vec;
 
+use crate::zset::ZSet;
+
 const P: u64 = 0x100000001b3u64;
 const MAX_LOAD_FACTOR: usize = 8;
+
+#[derive(Debug)]
+pub enum Value {
+    Str(Vec<u8>),
+    ZSet(ZSet),
+}
 
 pub struct HMap {
     newer: Table,
@@ -17,7 +25,7 @@ impl HMap {
             migration_pos: 0,
         }
     }
-    pub fn look_up(&mut self, key: &[u8]) -> Option<&Vec<u8>> {
+    pub fn look_up(&mut self, key: &[u8]) -> Option<&Value> {
         self.rehashing();
         let hash = hash(key);
         let mut result = self.newer.lookup(hash, key);
@@ -29,7 +37,19 @@ impl HMap {
         }
         Some(&result.unwrap().val)
     }
-    pub fn insert(&mut self, key: Vec<u8>, val: Vec<u8>) {
+    pub fn look_up_mut(&mut self, key: &[u8]) -> Option<&mut Value> {
+        self.rehashing();
+        let hash = hash(key);
+        let mut result = self.newer.lookup_mut(hash, key);
+        if result.is_none() {
+            result = self.older.lookup_mut(hash, key);
+            if result.is_none() {
+                return None;
+            }
+        }
+        result
+    }
+    pub fn insert(&mut self, key: Vec<u8>, val: Value) {
         self.rehashing();
         let hash = hash(&key);
         if let Some(value) = self.newer.lookup_mut(hash, &key) {
@@ -133,7 +153,7 @@ impl Table {
         }
         None
     }
-    pub fn lookup_mut(&mut self, hash_code: u64, key: &[u8]) -> Option<&mut Vec<u8>> {
+    pub fn lookup_mut(&mut self, hash_code: u64, key: &[u8]) -> Option<&mut Value> {
         if self.slots.is_empty() {
             return None;
         }
@@ -200,7 +220,7 @@ impl Table {
 struct Node {
     h_code: u64,
     key: Vec<u8>,
-    val: Vec<u8>,
+    val: Value,
     next: Option<Box<Node>>,
 }
 

@@ -1,8 +1,11 @@
+mod avl;
 mod buffer;
 mod hash;
 mod operation;
 mod poll;
 mod protocol;
+mod key;
+mod zset;
 
 use std::{
     collections::HashMap,
