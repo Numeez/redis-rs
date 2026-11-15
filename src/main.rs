@@ -2,6 +2,7 @@ mod avl;
 mod buffer;
 mod hash;
 mod key;
+mod min_heap;
 mod operation;
 mod poll;
 mod protocol;
