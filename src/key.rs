@@ -1,9 +1,20 @@
-use std::fmt::Display;
+use std::{fmt::Display, time::Instant};
 
 #[derive(Clone, Debug)]
 pub struct Key {
     score: f64,
     name: String,
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct TTLEntry {
+    pub deadline: Instant,
+    pub key: Vec<u8>,
+}
+impl TTLEntry {
+    pub fn new(key: Vec<u8>, deadline: Instant) -> Self {
+        Self { deadline, key }
+    }
 }
 
 impl Key {

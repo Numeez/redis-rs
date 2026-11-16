@@ -1,4 +1,4 @@
-use std::vec;
+use std::{time::Instant, vec};
 
 use crate::zset::ZSet;
 
@@ -49,21 +49,48 @@ impl HMap {
         }
         result
     }
+    pub fn look_up_mut_node(&mut self, key: &[u8]) -> Option<&mut Node> {
+        self.rehashing();
+        let hash = hash(key);
+        let mut result = self.newer.lookup_mut_node(hash, key);
+        if result.is_none() {
+            result = self.older.lookup_mut_node(hash, key);
+            if result.is_none() {
+                return None;
+            }
+        }
+        result
+    }
+    pub fn look_up_node(&mut self, key: &[u8]) -> Option<&Node> {
+        self.rehashing();
+        let hash = hash(key);
+        let mut result = self.newer.lookup_node(hash, key);
+        if result.is_none() {
+            result = self.older.lookup_node(hash, key);
+            if result.is_none() {
+                return None;
+            }
+        }
+        result
+    }
     pub fn insert(&mut self, key: Vec<u8>, val: Value) {
         self.rehashing();
         let hash = hash(&key);
-        if let Some(value) = self.newer.lookup_mut(hash, &key) {
-            *value = val;
+        if let Some(node) = self.newer.lookup_mut_node(hash, &key) {
+            node.val = val;
+            node.deadline = None;
             return;
         }
-        if let Some(value) = self.older.lookup_mut(hash, &key) {
-            *value = val;
+        if let Some(node) = self.older.lookup_mut_node(hash, &key) {
+            node.val = val;
+            node.deadline = None;
             return;
         }
         self.newer.insert(Box::new(Node {
             h_code: hash,
             key,
             val,
+            deadline: None,
             next: None,
         }));
 
@@ -168,6 +195,37 @@ impl Table {
 
         None
     }
+    pub fn lookup_mut_node(&mut self, hash_code: u64, key: &[u8]) -> Option<&mut Node> {
+        if self.slots.is_empty() {
+            return None;
+        }
+        let i = hash_code as usize & self.mask;
+        let mut cur = &mut self.slots[i];
+        while let Some(node) = cur {
+            if node.h_code == hash_code && node.key == key {
+                return Some(node);
+            }
+            cur = &mut node.next;
+        }
+
+        None
+    }
+
+    pub fn lookup_node(&mut self, hash_code: u64, key: &[u8]) -> Option<&Node> {
+        if self.slots.is_empty() {
+            return None;
+        }
+        let i = hash_code as usize & self.mask;
+        let mut cur = &mut self.slots[i];
+        while let Some(node) = cur {
+            if node.h_code == hash_code && node.key == key {
+                return Some(node);
+            }
+            cur = &mut node.next;
+        }
+
+        None
+    }
 
     pub fn remove(&mut self, hash_code: u64, key: &[u8]) -> Option<Box<Node>> {
         if self.slots.is_empty() {
@@ -217,10 +275,11 @@ impl Table {
     }
 }
 
-struct Node {
+pub struct Node {
     h_code: u64,
     key: Vec<u8>,
     val: Value,
+    pub deadline: Option<Instant>,
     next: Option<Box<Node>>,
 }
 

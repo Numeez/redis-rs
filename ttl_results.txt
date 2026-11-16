@@ -1,0 +1,94 @@
+=== 1. key expires on time ===
+$ set k hello
+expected: nil (from set)
+got:      (nil) 
+
+$ pexpire k 3000
+expected: (integer) 1
+got:      (integer) 1 
+
+$ pttl k
+expected: about 3000
+got:      (integer) 2994 
+
+--- sleep 4 ---
+
+$ get k
+expected: (nil)
+got:      (nil) 
+
+$ pttl k
+expected: (integer) -2
+got:      (integer) -2 
+
+=== 2. extended TTL: stale entry skipped ===
+$ set k hello
+expected: nil (from set)
+got:      (nil) 
+
+$ pexpire k 1000
+expected: (integer) 1
+got:      (integer) 1 
+
+$ pexpire k 60000
+expected: (integer) 1
+got:      (integer) 1 
+
+--- sleep 2 ---
+
+$ get k
+expected: hello
+got:      hello 
+
+$ pttl k
+expected: about 58000
+got:      (integer) 57972 
+
+=== 3. set clears the TTL ===
+$ pexpire k 1000
+expected: (integer) 1
+got:      (integer) 1 
+
+$ set k world
+expected: nil (from set)
+got:      (nil) 
+
+--- sleep 2 ---
+
+$ get k
+expected: world
+got:      world 
+
+$ pttl k
+expected: (integer) -1
+got:      (integer) -1 
+
+=== 4. whole sorted set expires ===
+$ zadd board 1 a
+expected: (integer) 1
+got:      (integer) 1 
+
+$ pexpire board 1000
+expected: (integer) 1
+got:      (integer) 1 
+
+--- sleep 2 ---
+
+$ zscore board a
+expected: (nil)
+got:      (nil) 
+
+=== 5. pexpire on missing key ===
+$ pexpire nosuchkey 1000
+expected: (integer) 0
+got:      (integer) 0 
+
+$ pttl nosuchkey
+expected: (integer) -2
+got:      (integer) -2 
+
+=== 6. negative ms rejected ===
+$ pexpire k -100
+expected: (error ...)
+got:      (error 1) expected a non-negative integer 
+

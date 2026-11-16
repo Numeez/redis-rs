@@ -1,6 +1,10 @@
+use std::time::{Duration, Instant};
+
 use crate::{
     buffer::Buffer,
     hash::{self, Value},
+    key::TTLEntry,
+    min_heap::MinHeap,
     protocol::{self, ERR_UNKNOWN, out_arr, out_dbl, out_error, out_int, out_nil, out_str},
     zset::ZSet,
 };
@@ -36,6 +40,13 @@ pub enum Command {
         name: String,
         offset: u32,
         limit: u32,
+    },
+    Pexpire {
+        key: Vec<u8>,
+        dead_line: Instant,
+    },
+    Pttl {
+        key: Vec<u8>,
     },
     Keys,
 }
@@ -94,6 +105,25 @@ pub fn parse_command(mut data: Vec<Vec<u8>>) -> std::io::Result<Command> {
                 limit,
             })
         }
+        (b"pexpire", 3) => {
+            let ms = parse_u32(&data.pop().unwrap())?;
+            let key = data.pop().unwrap();
+            let dead_line = Instant::now().checked_add(Duration::from_millis(ms as u64));
+            if dead_line.is_none() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "invalid deadline",
+                ));
+            }
+            Ok(Command::Pexpire {
+                key,
+                dead_line: dead_line.unwrap(),
+            })
+        }
+        (b"pttl", 2) => {
+            let key = data.pop().unwrap();
+            Ok(Command::Pttl { key })
+        }
         _ => {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -103,7 +133,12 @@ pub fn parse_command(mut data: Vec<Vec<u8>>) -> std::io::Result<Command> {
     }
 }
 
-pub fn execute(output_buffer: &mut Buffer, cmd: Command, store: &mut hash::HMap) {
+pub fn execute(
+    output_buffer: &mut Buffer,
+    cmd: Command,
+    ttl_entries: &mut MinHeap<TTLEntry>,
+    store: &mut hash::HMap,
+) {
     match cmd {
         Command::Set { key, val } => {
             execute_set(store, key, val);
@@ -173,6 +208,36 @@ pub fn execute(output_buffer: &mut Buffer, cmd: Command, store: &mut hash::HMap)
             Some(_) => out_error(output_buffer, ERR_UNKNOWN, b"expect zset"),
             None => out_arr(output_buffer, 0),
         },
+        Command::Pexpire { key, dead_line } => {
+            let node = store.look_up_mut_node(&key);
+            match node {
+                None => out_int(output_buffer, 0),
+                Some(val) => {
+                    if !val.deadline.is_none() {
+                        val.deadline = Some(dead_line);
+                    } else {
+                        val.deadline = Some(dead_line);
+                    }
+                    let entry = TTLEntry::new(key, dead_line);
+                    ttl_entries.insert(entry);
+                    out_int(output_buffer, 1);
+                }
+            }
+        }
+        Command::Pttl { key } => {
+            let node = store.look_up_mut_node(&key);
+            match node {
+                None => out_int(output_buffer, -2),
+                Some(val) => match val.deadline {
+                    None => out_int(output_buffer, -1),
+                    Some(val) => {
+                        let ms_left =
+                            val.saturating_duration_since(Instant::now()).as_millis() as i64;
+                        out_int(output_buffer, ms_left);
+                    }
+                },
+            }
+        }
     }
 }
 
