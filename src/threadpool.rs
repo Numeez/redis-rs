@@ -45,12 +45,13 @@ impl ThreadPool {
 
 pub fn drop_value(value: Value, threadpool: &ThreadPool) {
     if let Value::ZSet(zset) = value
-        && zset.len() >= LARGE_ZSET {
-            threadpool.execute(move || {
-                eprintln!("freeing zset of {} members on a worker", zset.len());
-                drop(zset)
-            });
-        }
+        && zset.len() >= LARGE_ZSET
+    {
+        threadpool.execute(move || {
+            eprintln!("freeing zset of {} members on a worker", zset.len());
+            drop(zset)
+        });
+    }
 }
 
 #[cfg(test)]

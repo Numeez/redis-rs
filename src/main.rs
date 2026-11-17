@@ -161,55 +161,57 @@ fn handle_events(
     thread_pool: &ThreadPool,
 ) {
     if entry.revents & POLLIN != 0
-        && let Some(client) = connection_map.get_mut(&entry.fd) {
-            let mut buffer = [0u8; 1024];
-            let mut close = false;
-            client.last_active = Instant::now();
-            idles.push_back((client.last_active, entry.fd));
-            match client.stream.read(&mut buffer) {
-                Ok(val) => {
-                    if val == 0 {
-                        connection_map.remove(&entry.fd);
-                    } else {
-                        client.input_buffer.append(&buffer[..val]);
-                        loop {
-                            if client.input_buffer.len() < 4 {
-                                break;
-                            }
-                            let length = u32::from_le_bytes(
-                                client.input_buffer.data()[..4].try_into().unwrap(),
-                            ) as usize;
-                            if length > buffer::MAX_SIZE {
-                                close = true;
-                                break;
-                            }
-                            if client.input_buffer.len() >= 4 + length {
-                                handle_request(client, length, ttl_entries, store, thread_pool);
-                            } else {
-                                break;
-                            }
+        && let Some(client) = connection_map.get_mut(&entry.fd)
+    {
+        let mut buffer = [0u8; 1024];
+        let mut close = false;
+        client.last_active = Instant::now();
+        idles.push_back((client.last_active, entry.fd));
+        match client.stream.read(&mut buffer) {
+            Ok(val) => {
+                if val == 0 {
+                    connection_map.remove(&entry.fd);
+                } else {
+                    client.input_buffer.append(&buffer[..val]);
+                    loop {
+                        if client.input_buffer.len() < 4 {
+                            break;
                         }
-                        if !close && !client.output_buffer.is_empty() {
-                            close = client.try_write();
+                        let length =
+                            u32::from_le_bytes(client.input_buffer.data()[..4].try_into().unwrap())
+                                as usize;
+                        if length > buffer::MAX_SIZE {
+                            close = true;
+                            break;
+                        }
+                        if client.input_buffer.len() >= 4 + length {
+                            handle_request(client, length, ttl_entries, store, thread_pool);
+                        } else {
+                            break;
                         }
                     }
-                }
-                Err(err) => {
-                    if err.kind() != ErrorKind::WouldBlock && err.kind() != ErrorKind::Interrupted {
-                        connection_map.remove(&entry.fd);
+                    if !close && !client.output_buffer.is_empty() {
+                        close = client.try_write();
                     }
                 }
             }
-            if close {
-                connection_map.remove(&entry.fd);
+            Err(err) => {
+                if err.kind() != ErrorKind::WouldBlock && err.kind() != ErrorKind::Interrupted {
+                    connection_map.remove(&entry.fd);
+                }
             }
         }
+        if close {
+            connection_map.remove(&entry.fd);
+        }
+    }
 
     if entry.revents & POLLOUT != 0
         && let Some(client) = connection_map.get_mut(&entry.fd)
-            && client.try_write() {
-                connection_map.remove(&entry.fd);
-            }
+        && client.try_write()
+    {
+        connection_map.remove(&entry.fd);
+    }
 
     if entry.revents & (POLLERR | POLLHUP | POLLNVAL) != 0 {
         connection_map.remove(&entry.fd);
@@ -323,9 +325,7 @@ fn process_timers(
             break;
         }
         idles.pop_front();
-        let still_idle = connection_map
-            .get(&fd)
-            .is_some_and(|c| c.last_active == t);
+        let still_idle = connection_map.get(&fd).is_some_and(|c| c.last_active == t);
         if still_idle {
             eprintln!("closing idle connection {fd}");
             connection_map.remove(&fd);

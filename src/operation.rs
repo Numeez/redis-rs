@@ -125,12 +125,10 @@ pub fn parse_command(mut data: Vec<Vec<u8>>) -> std::io::Result<Command> {
             let key = data.pop().unwrap();
             Ok(Command::Pttl { key })
         }
-        _ => {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "invalid arguments",
-            ))
-        }
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid arguments",
+        )),
     }
 }
 
@@ -173,9 +171,10 @@ pub fn execute(
         }
         Command::ZAdd { key, score, name } => {
             if store.look_up(&key).is_none()
-                && let Some(val) = store.insert(key.clone(), Value::ZSet(ZSet::new())) {
-                    drop_value(val, thread_pool);
-                }
+                && let Some(val) = store.insert(key.clone(), Value::ZSet(ZSet::new()))
+            {
+                drop_value(val, thread_pool);
+            }
             match store.look_up_mut(&key) {
                 Some(Value::ZSet(zset)) => {
                     let added = zset.add(&name, score);
