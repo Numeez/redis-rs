@@ -76,20 +76,18 @@ impl HMap {
         }
         result
     }
-    pub fn insert(&mut self, key: Vec<u8>, val: Value, thread_pool: &ThreadPool) {
+    pub fn insert(&mut self, key: Vec<u8>, val: Value) -> Option<Value> {
         self.rehashing();
         let hash = hash(&key);
         if let Some(node) = self.newer.lookup_mut_node(hash, &key) {
             let old_val = std::mem::replace(&mut node.val, val);
-            drop_value(old_val, thread_pool);
             node.deadline = None;
-            return;
+            return Some(old_val);
         }
         if let Some(node) = self.older.lookup_mut_node(hash, &key) {
             let old_val = std::mem::replace(&mut node.val, val);
-            drop_value(old_val, thread_pool);
             node.deadline = None;
-            return;
+            return Some(old_val);
         }
         self.newer.insert(Box::new(Node {
             h_code: hash,
@@ -104,6 +102,7 @@ impl HMap {
             self.older = std::mem::replace(&mut self.newer, Table::new(new_capacity));
             self.migration_pos = 0;
         }
+        None
     }
     fn rehashing(&mut self) {
         let mut counter = 0;

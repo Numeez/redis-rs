@@ -143,7 +143,9 @@ pub fn execute(
 ) {
     match cmd {
         Command::Set { key, val } => {
-            execute_set(store, key, val, thread_pool);
+            if let Some(val) = execute_set(store, key, val) {
+                drop_value(val, thread_pool);
+            }
             protocol::out_nil(output_buffer);
         }
         Command::Get { key } => match execute_get(store, key) {
@@ -171,7 +173,9 @@ pub fn execute(
         }
         Command::ZAdd { key, score, name } => {
             if store.look_up(&key).is_none() {
-                store.insert(key.clone(), Value::ZSet(ZSet::new()), thread_pool);
+                if let Some(val) = store.insert(key.clone(), Value::ZSet(ZSet::new())) {
+                    drop_value(val, thread_pool);
+                }
             }
             match store.look_up_mut(&key) {
                 Some(Value::ZSet(zset)) => {
@@ -245,8 +249,8 @@ pub fn execute(
     }
 }
 
-fn execute_set(store: &mut hash::HMap, key: Vec<u8>, val: Value, thread_pool: &ThreadPool) {
-    store.insert(key, val, thread_pool)
+fn execute_set(store: &mut hash::HMap, key: Vec<u8>, val: Value) -> Option<Value> {
+    store.insert(key, val)
 }
 
 pub fn execute_get(store: &mut hash::HMap, key: Vec<u8>) -> Option<&Value> {
