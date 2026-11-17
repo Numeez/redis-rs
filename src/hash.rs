@@ -206,17 +206,17 @@ impl Table {
         None
     }
 
-    pub fn lookup_node(&mut self, hash_code: u64, key: &[u8]) -> Option<&Node> {
+    pub fn lookup_node(&self, hash_code: u64, key: &[u8]) -> Option<&Node> {
         if self.slots.is_empty() {
             return None;
         }
         let i = hash_code as usize & self.mask;
-        let mut cur = &mut self.slots[i];
+        let mut cur = &self.slots[i];
         while let Some(node) = cur {
             if node.h_code == hash_code && node.key == key {
                 return Some(node);
             }
-            cur = &mut node.next;
+            cur = &node.next;
         }
 
         None

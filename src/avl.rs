@@ -2,7 +2,7 @@ use crate::key::Key;
 use std::cmp::Ordering;
 
 #[derive(Debug)]
-struct Node {
+pub struct Node {
     key: Key,
     height: u32,
     count: u32,
@@ -139,13 +139,13 @@ fn take_min(mut val: Box<Node>) -> (Option<Box<Node>>, Box<Node>) {
     }
 }
 
-fn inorder(node: &Option<Box<Node>>, out: &mut Vec<Key>) {
+fn _inorder(node: &Option<Box<Node>>, out: &mut Vec<Key>) {
     match node {
         None => {}
         Some(n) => {
-            inorder(&n.left, out);
+            _inorder(&n.left, out);
             out.push(n.key.clone());
-            inorder(&n.right, out);
+            _inorder(&n.right, out);
         }
     }
 }
@@ -209,7 +209,7 @@ mod tests {
     fn verify(tree: &Tree, reference: &BTreeSet<u32>) {
         check(&tree.root);
         let mut out: Vec<Key> = Vec::new();
-        inorder(&tree.root, &mut out);
+        _inorder(&tree.root, &mut out);
         let expected: Vec<Key> = reference.iter().map(|&n| k(n)).collect();
         assert_eq!(out, expected);
     }
@@ -273,7 +273,7 @@ mod tests {
         check(&tree.root);
 
         let mut out = Vec::new();
-        inorder(&tree.root, &mut out);
+        _inorder(&tree.root, &mut out);
         let expected = vec![
             Key::new(0.5, "zed"),
             Key::new(1.0, "alice"),
