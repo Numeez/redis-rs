@@ -31,9 +31,7 @@ impl HMap {
         let mut result = self.newer.lookup(hash, key);
         if result.is_none() {
             result = self.older.lookup(hash, key);
-            if result.is_none() {
-                return None;
-            }
+            result?;
         }
         Some(&result.unwrap().val)
     }
@@ -43,9 +41,7 @@ impl HMap {
         let mut result = self.newer.lookup_mut(hash, key);
         if result.is_none() {
             result = self.older.lookup_mut(hash, key);
-            if result.is_none() {
-                return None;
-            }
+            result.as_ref()?;
         }
         result
     }
@@ -55,9 +51,7 @@ impl HMap {
         let mut result = self.newer.lookup_mut_node(hash, key);
         if result.is_none() {
             result = self.older.lookup_mut_node(hash, key);
-            if result.is_none() {
-                return None;
-            }
+            result.as_ref()?;
         }
         result
     }
@@ -67,9 +61,7 @@ impl HMap {
         let mut result = self.newer.lookup_node(hash, key);
         if result.is_none() {
             result = self.older.lookup_node(hash, key);
-            if result.is_none() {
-                return None;
-            }
+            result?;
         }
         result
     }

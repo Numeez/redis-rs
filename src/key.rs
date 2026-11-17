@@ -20,7 +20,7 @@ impl TTLEntry {
 impl Key {
     pub fn new(score: f64, name: &str) -> Key {
         Self {
-            score: score,
+            score,
             name: name.to_string(),
         }
     }

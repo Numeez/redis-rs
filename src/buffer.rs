@@ -38,7 +38,7 @@ impl Buffer {
         self.len() == 0
     }
     pub fn len(&self) -> usize {
-        return self.data.len() - self.start;
+        self.data.len() - self.start
     }
 
     pub fn set_header(&mut self, pos: usize, header: &[u8]) {

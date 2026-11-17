@@ -151,7 +151,7 @@ fn inorder(node: &Option<Box<Node>>, out: &mut Vec<Key>) {
 }
 fn rotate_left(node: Option<Box<Node>>) -> Option<Box<Node>> {
     match node {
-        None => return None,
+        None => None,
         Some(mut val) => {
             let mut right_child = val.right.take().expect("rotate_left: no right child");
             let x = right_child.left.take();
@@ -181,7 +181,7 @@ fn rotate_right(node: Option<Box<Node>>) -> Option<Box<Node>> {
 
 fn check(node: &Option<Box<Node>>) -> (u32, u32) {
     match node {
-        None => return (0, 0),
+        None => (0, 0),
         Some(val) => {
             let (lh, lc) = check(&val.left);
             let (rh, rc) = check(&val.right);

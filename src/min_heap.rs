@@ -68,16 +68,16 @@ impl<T: Ord> MinHeap<T> {
         Some(&self.data[0])
     }
     fn get_parent_index(current_index: usize) -> usize {
-        let idx = (current_index - 1) / 2;
-        idx
+        
+        (current_index - 1) / 2
     }
     fn get_left_child_index(current_index: usize) -> usize {
-        let idx = 2 * current_index + 1;
-        idx
+        
+        2 * current_index + 1
     }
     fn get_right_child_index(current_index: usize) -> usize {
-        let idx = 2 * current_index + 2;
-        idx
+        
+        2 * current_index + 2
     }
 }
 fn check_heap(heap: &MinHeap<usize>) {

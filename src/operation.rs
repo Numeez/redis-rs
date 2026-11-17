@@ -126,10 +126,10 @@ pub fn parse_command(mut data: Vec<Vec<u8>>) -> std::io::Result<Command> {
             Ok(Command::Pttl { key })
         }
         _ => {
-            return Err(std::io::Error::new(
+            Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "invalid arguments",
-            ));
+            ))
         }
     }
 }
@@ -172,11 +172,10 @@ pub fn execute(
             }
         }
         Command::ZAdd { key, score, name } => {
-            if store.look_up(&key).is_none() {
-                if let Some(val) = store.insert(key.clone(), Value::ZSet(ZSet::new())) {
+            if store.look_up(&key).is_none()
+                && let Some(val) = store.insert(key.clone(), Value::ZSet(ZSet::new())) {
                     drop_value(val, thread_pool);
                 }
-            }
             match store.look_up_mut(&key) {
                 Some(Value::ZSet(zset)) => {
                     let added = zset.add(&name, score);
@@ -221,7 +220,7 @@ pub fn execute(
             match node {
                 None => out_int(output_buffer, 0),
                 Some(val) => {
-                    if !val.deadline.is_none() {
+                    if val.deadline.is_some() {
                         val.deadline = Some(dead_line);
                     } else {
                         val.deadline = Some(dead_line);

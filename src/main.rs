@@ -160,8 +160,8 @@ fn handle_events(
     store: &mut HMap,
     thread_pool: &ThreadPool,
 ) {
-    if entry.revents & POLLIN != 0 {
-        if let Some(client) = connection_map.get_mut(&entry.fd) {
+    if entry.revents & POLLIN != 0
+        && let Some(client) = connection_map.get_mut(&entry.fd) {
             let mut buffer = [0u8; 1024];
             let mut close = false;
             client.last_active = Instant::now();
@@ -204,15 +204,12 @@ fn handle_events(
                 connection_map.remove(&entry.fd);
             }
         }
-    }
 
-    if entry.revents & POLLOUT != 0 {
-        if let Some(client) = connection_map.get_mut(&entry.fd) {
-            if client.try_write() {
+    if entry.revents & POLLOUT != 0
+        && let Some(client) = connection_map.get_mut(&entry.fd)
+            && client.try_write() {
                 connection_map.remove(&entry.fd);
             }
-        }
-    }
 
     if entry.revents & (POLLERR | POLLHUP | POLLNVAL) != 0 {
         connection_map.remove(&entry.fd);
@@ -328,7 +325,7 @@ fn process_timers(
         idles.pop_front();
         let still_idle = connection_map
             .get(&fd)
-            .map_or(false, |c| c.last_active == t);
+            .is_some_and(|c| c.last_active == t);
         if still_idle {
             eprintln!("closing idle connection {fd}");
             connection_map.remove(&fd);
@@ -343,7 +340,7 @@ fn process_timers(
                 let val = ttl_entries.delete().unwrap();
                 let current = store
                     .look_up_node(&val.key)
-                    .map_or(false, |n| n.deadline == Some(val.deadline));
+                    .is_some_and(|n| n.deadline == Some(val.deadline));
                 if current {
                     if let Some(value) = store.remove(&val.key) {
                         drop_value(value, thread_pool);
