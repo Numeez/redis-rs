@@ -93,7 +93,7 @@ fn main() -> std::io::Result<()> {
             });
         }
         match poll_fds(&mut fds, next_timeout_ms(&idles, &ttl_entries)) {
-            Ok(val) => eprintln!("The return value of poll: {val}"),
+            Ok(_) => {},
             Err(e) => {
                 eprintln!("Err occured while  calling poll: {e}");
                 continue;
