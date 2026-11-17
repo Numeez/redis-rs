@@ -11,7 +11,7 @@ use crate::{hash::Value, zset::LARGE_ZSET};
 type Job = Box<dyn FnOnce() + Send + 'static>;
 pub struct ThreadPool {
     threads: Vec<JoinHandle<()>>,
-    sender: Sender<Job>,
+    sender: Option<Sender<Job>>,
 }
 
 impl ThreadPool {
@@ -33,13 +33,18 @@ impl ThreadPool {
             threads.push(handle);
         }
 
-        Self { threads, sender }
+        Self {
+            threads,
+            sender: Some(sender),
+        }
     }
     pub fn execute<F>(&self, f: F)
     where
         F: FnOnce() + Send + 'static,
     {
-        self.sender.send(Box::new(f)).unwrap()
+        if let Some(sender) = &self.sender {
+            sender.send(Box::new(f)).unwrap()
+        }
     }
 }
 
@@ -51,6 +56,16 @@ pub fn drop_value(value: Value, threadpool: &ThreadPool) {
             eprintln!("freeing zset of {} members on a worker", zset.len());
             drop(zset)
         });
+    }
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        let sender = self.sender.take();
+        drop(sender);
+        while let Some(handle) = self.threads.pop() {
+            let _ = handle.join();
+        }
     }
 }
 
