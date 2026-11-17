@@ -116,16 +116,18 @@ impl HMap {
             self.older = Table::empty()
         }
     }
-    pub fn remove(&mut self, key: &[u8]) -> bool {
+    pub fn remove(&mut self, key: &[u8]) -> Option<Value> {
         self.rehashing();
         let hash = hash(key);
-        if self.newer.remove(hash, key).is_some() {
-            return true;
+        let val = self
+            .newer
+            .remove(hash, key)
+            .or_else(|| self.older.remove(hash, key));
+
+        if let Some(value) = val {
+            return Some(value.val);
         }
-        if self.older.remove(hash, key).is_some() {
-            return true;
-        }
-        false
+        None
     }
 
     pub fn len(&self) -> usize {

@@ -1,5 +1,4 @@
 
-
 pub struct MinHeap<T> {
     data: Vec<T>,
 }

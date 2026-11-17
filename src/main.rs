@@ -6,6 +6,7 @@ mod min_heap;
 mod operation;
 mod poll;
 mod protocol;
+mod threadpool;
 mod zset;
 
 use std::{
@@ -24,6 +25,7 @@ use crate::{
     key::TTLEntry,
     min_heap::MinHeap,
     poll::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, poll_fds},
+    threadpool::{ThreadPool, drop_value},
 };
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -63,6 +65,7 @@ fn main() -> std::io::Result<()> {
     let mut idles: VecDeque<(Instant, RawFd)> = VecDeque::new();
     let mut store = hash::HMap::new(4);
     let mut ttl_entries: MinHeap<TTLEntry> = MinHeap::new();
+    let thread_pool = ThreadPool::new(5);
     let listener = TcpListener::bind("127.0.0.1:6969")?;
     eprintln!("Server is listening on the  port: 6969");
     listener.set_nonblocking(true)?;
@@ -106,6 +109,7 @@ fn main() -> std::io::Result<()> {
                 &mut connection_map,
                 &mut ttl_entries,
                 &mut store,
+                &thread_pool,
             )
         }
         process_timers(
@@ -113,6 +117,7 @@ fn main() -> std::io::Result<()> {
             &mut store,
             &mut ttl_entries,
             &mut connection_map,
+            &thread_pool,
         );
     }
 }
@@ -151,6 +156,7 @@ fn handle_events(
     connection_map: &mut HashMap<RawFd, Client>,
     ttl_entries: &mut MinHeap<TTLEntry>,
     store: &mut HMap,
+    thread_pool: &ThreadPool,
 ) {
     if entry.revents & POLLIN != 0 {
         if let Some(client) = connection_map.get_mut(&entry.fd) {
@@ -176,7 +182,7 @@ fn handle_events(
                                 break;
                             }
                             if client.input_buffer.len() >= 4 + length {
-                                handle_request(client, length, ttl_entries, store);
+                                handle_request(client, length, ttl_entries, store, thread_pool);
                             } else {
                                 break;
                             }
@@ -250,6 +256,7 @@ fn handle_request(
     length: usize,
     ttl_entries: &mut MinHeap<TTLEntry>,
     store: &mut HMap,
+    thread_pool: &ThreadPool,
 ) {
     let header = response_start(&mut client.output_buffer);
     process_request(
@@ -257,6 +264,7 @@ fn handle_request(
         &mut client.output_buffer,
         ttl_entries,
         store,
+        thread_pool,
     );
     response_end(&mut client.output_buffer, header);
     client.input_buffer.consume(4 + length);
@@ -267,6 +275,7 @@ fn process_request(
     out: &mut Buffer,
     ttl_entries: &mut MinHeap<TTLEntry>,
     store: &mut HMap,
+    thread_pool: &ThreadPool,
 ) {
     let args = match parse_client_request(payload) {
         Ok(args) => args,
@@ -282,7 +291,7 @@ fn process_request(
             return;
         }
     };
-    operation::execute(out, cmd, ttl_entries, store);
+    operation::execute(out, cmd, ttl_entries, store, thread_pool);
 }
 
 fn next_timeout_ms(idles: &VecDeque<(Instant, RawFd)>, ttl_entries: &MinHeap<TTLEntry>) -> i32 {
@@ -307,6 +316,7 @@ fn process_timers(
     store: &mut HMap,
     ttl_entries: &mut MinHeap<TTLEntry>,
     connection_map: &mut HashMap<RawFd, Client>,
+    thread_pool: &ThreadPool,
 ) {
     let now = Instant::now();
     while let Some(&(t, fd)) = idles.front() {
@@ -332,7 +342,10 @@ fn process_timers(
                 let current = store
                     .look_up_node(&val.key)
                     .map_or(false, |n| n.deadline == Some(val.deadline));
-                if current && store.remove(&val.key) {
+                if current {
+                    if let Some(value) = store.remove(&val.key) {
+                        drop_value(value, thread_pool);
+                    }
                     eprintln!("Key: {} expired", String::from_utf8_lossy(&val.key));
                 }
             }

@@ -6,6 +6,7 @@ use crate::{
     key::TTLEntry,
     min_heap::MinHeap,
     protocol::{self, ERR_UNKNOWN, out_arr, out_dbl, out_error, out_int, out_nil, out_str},
+    threadpool::{ThreadPool, drop_value},
     zset::ZSet,
 };
 
@@ -138,6 +139,7 @@ pub fn execute(
     cmd: Command,
     ttl_entries: &mut MinHeap<TTLEntry>,
     store: &mut hash::HMap,
+    thread_pool: &ThreadPool,
 ) {
     match cmd {
         Command::Set { key, val } => {
@@ -151,7 +153,9 @@ pub fn execute(
         },
         Command::Del { key } => {
             let val: i64;
-            if execute_del(store, key) {
+            let removed = execute_del(store, key);
+            if removed.is_some() {
+                drop_value(removed.unwrap(), thread_pool);
                 val = 1;
             } else {
                 val = 0;
@@ -249,7 +253,7 @@ pub fn execute_get(store: &mut hash::HMap, key: Vec<u8>) -> Option<&Value> {
     store.look_up(&key)
 }
 
-pub fn execute_del(store: &mut hash::HMap, key: Vec<u8>) -> bool {
+pub fn execute_del(store: &mut hash::HMap, key: Vec<u8>) -> Option<Value> {
     store.remove(&key)
 }
 

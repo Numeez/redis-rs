@@ -42,7 +42,7 @@ got:      hello
 
 $ pttl k
 expected: about 58000
-got:      (integer) 57972 
+got:      (integer) 57971 
 
 === 3. set clears the TTL ===
 $ pexpire k 1000

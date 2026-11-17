@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use crate::{avl::Tree, key::Key};
 
+pub const LARGE_ZSET: usize = 1000;
+
 #[derive(Debug)]
 pub struct ZSet {
     scores: HashMap<String, f64>,
