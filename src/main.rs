@@ -29,6 +29,8 @@ use crate::{
 };
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_POLL_SLEEP_MS: u128 = 60 * 60 * 1000;
+
 struct Client {
     stream: TcpStream,
     output_buffer: Buffer,
@@ -307,7 +309,7 @@ fn next_timeout_ms(idles: &VecDeque<(Instant, RawFd)>, ttl_entries: &MinHeap<TTL
     if soonest <= now {
         0
     } else {
-        (soonest - now).as_millis() as i32 + 1
+        (soonest - now).as_millis().min(MAX_POLL_SLEEP_MS) as i32 + 1
     }
 }
 

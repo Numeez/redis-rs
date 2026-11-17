@@ -1,6 +1,9 @@
-use std::{time::Instant, vec};
+use std::{thread::Thread, time::Instant, vec};
 
-use crate::zset::ZSet;
+use crate::{
+    threadpool::{ThreadPool, drop_value},
+    zset::ZSet,
+};
 
 const P: u64 = 0x100000001b3u64;
 const MAX_LOAD_FACTOR: usize = 8;
@@ -73,16 +76,18 @@ impl HMap {
         }
         result
     }
-    pub fn insert(&mut self, key: Vec<u8>, val: Value) {
+    pub fn insert(&mut self, key: Vec<u8>, val: Value, thread_pool: &ThreadPool) {
         self.rehashing();
         let hash = hash(&key);
         if let Some(node) = self.newer.lookup_mut_node(hash, &key) {
-            node.val = val;
+            let old_val = std::mem::replace(&mut node.val, val);
+            drop_value(old_val, thread_pool);
             node.deadline = None;
             return;
         }
         if let Some(node) = self.older.lookup_mut_node(hash, &key) {
-            node.val = val;
+            let old_val = std::mem::replace(&mut node.val, val);
+            drop_value(old_val, thread_pool);
             node.deadline = None;
             return;
         }
