@@ -1,9 +1,6 @@
-use std::{thread::Thread, time::Instant, vec};
+use std::{time::Instant, vec};
 
-use crate::{
-    threadpool::{ThreadPool, drop_value},
-    zset::ZSet,
-};
+use crate::zset::ZSet;
 
 const P: u64 = 0x100000001b3u64;
 const MAX_LOAD_FACTOR: usize = 8;
