@@ -76,6 +76,7 @@ impl<T: Ord> MinHeap<T> {
         2 * current_index + 2
     }
 }
+#[cfg(test)]
 fn check_heap(heap: &MinHeap<usize>) {
     for i in 1..heap.data.len() {
         let parent = (i - 1) / 2;

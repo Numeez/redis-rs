@@ -139,13 +139,14 @@ fn take_min(mut val: Box<Node>) -> (Option<Box<Node>>, Box<Node>) {
     }
 }
 
-fn _inorder(node: &Option<Box<Node>>, out: &mut Vec<Key>) {
+#[cfg(test)]
+fn inorder(node: &Option<Box<Node>>, out: &mut Vec<Key>) {
     match node {
         None => {}
         Some(n) => {
-            _inorder(&n.left, out);
+            inorder(&n.left, out);
             out.push(n.key.clone());
-            _inorder(&n.right, out);
+            inorder(&n.right, out);
         }
     }
 }
@@ -179,6 +180,7 @@ fn rotate_right(node: Option<Box<Node>>) -> Option<Box<Node>> {
     }
 }
 
+#[cfg(test)]
 fn check(node: &Option<Box<Node>>) -> (u32, u32) {
     match node {
         None => (0, 0),
@@ -209,7 +211,7 @@ mod tests {
     fn verify(tree: &Tree, reference: &BTreeSet<u32>) {
         check(&tree.root);
         let mut out: Vec<Key> = Vec::new();
-        _inorder(&tree.root, &mut out);
+        inorder(&tree.root, &mut out);
         let expected: Vec<Key> = reference.iter().map(|&n| k(n)).collect();
         assert_eq!(out, expected);
     }
@@ -273,7 +275,7 @@ mod tests {
         check(&tree.root);
 
         let mut out = Vec::new();
-        _inorder(&tree.root, &mut out);
+        inorder(&tree.root, &mut out);
         let expected = vec![
             Key::new(0.5, "zed"),
             Key::new(1.0, "alice"),
